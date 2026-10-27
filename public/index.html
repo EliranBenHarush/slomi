@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>חובות לקוחות</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --text: #1a2027; --muted: #6b7682; --line: #e3e7eb;
+    --brand: #0f766e; --brand-soft: #e6f4f2; --debt: #c2410c; --debt-soft: #fdf0e9;
+    --paid: #15803d; --paid-soft: #e8f6ec; --danger: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11161b; --card: #1a2128; --text: #e8edf2; --muted: #93a0ad; --line: #2a333c;
+      --brand: #2dd4bf; --brand-soft: #143a37; --debt: #fb923c; --debt-soft: #3a2418;
+      --paid: #4ade80; --paid-soft: #16321f; --danger: #f87171;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--brand); color: #fff;
+    padding: calc(12px + env(safe-area-inset-top)) 16px 12px; display: flex; align-items: center; gap: 10px; }
+  @media (prefers-color-scheme: dark) { header { background: #0d2e2b; } }
+  header h1 { font-size: 19px; margin: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header button { background: rgba(255,255,255,.15); color: #fff; border: 0; border-radius: 10px;
+    padding: 8px 12px; font: inherit; font-size: 15px; }
+  main { padding: 16px; padding-bottom: calc(96px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+  .hidden { display: none !important; }
+
+  .summary { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 14px;
+    display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); }
+  .summary .label { color: var(--muted); font-size: 14px; }
+  .summary .value { font-size: 26px; font-weight: 700; color: var(--debt); }
+  .summary .count { text-align: left; color: var(--muted); font-size: 14px; }
+
+  input, select { width: 100%; font: inherit; font-size: 16px; padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  input:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+  .search { margin-bottom: 14px; }
+
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .item { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+    display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  .item:active { transform: scale(.99); }
+  .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--brand-soft); color: var(--brand);
+    display: grid; place-items: center; font-weight: 700; flex: none; }
+  .item .main { flex: 1; min-width: 0; }
+  .item .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .sub { color: var(--muted); font-size: 13px; }
+  .amount { font-weight: 700; white-space: nowrap; direction: ltr; }
+  .amount.debt { color: var(--debt); } .amount.paid { color: var(--paid); } .amount.zero { color: var(--muted); }
+
+  .fab { position: fixed; left: 16px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 6;
+    background: var(--brand); color: #fff; border: 0; border-radius: 28px; padding: 15px 22px;
+    font: inherit; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
+  @media (prefers-color-scheme: dark) { .fab { color: #062b27; } }
+
+  .balance-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 20px 16px; text-align: center; margin-bottom: 14px; }
+  .balance-card .label { color: var(--muted); font-size: 14px; }
+  .balance-card .big { font-size: 38px; font-weight: 800; direction: ltr; }
+  .balance-card .phone { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+  .actions a, .actions button { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); text-decoration: none; }
+
+  .form { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 16px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--bg); padding: 4px;
+    border-radius: 12px; margin-bottom: 10px; }
+  .seg button { border: 0; border-radius: 9px; padding: 10px; font: inherit; font-weight: 600;
+    background: transparent; color: var(--muted); }
+  .seg button.on[data-type="debt"] { background: var(--debt-soft); color: var(--debt); }
+  .seg button.on[data-type="payment"] { background: var(--paid-soft); color: var(--paid); }
+  .row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .row .grow { flex: 1; }
+  .row .amt { width: 120px; flex: none; }
+  .btn { width: 100%; border: 0; border-radius: 12px; padding: 13px; font: inherit; font-weight: 700;
+    background: var(--brand); color: #fff; }
+  @media (prefers-color-scheme: dark) { .btn { color: #062b27; } }
+  .btn:disabled { opacity: .6; }
+
+  h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 4px 4px 10px; }
+  .entry { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px; }
+  .entry .main { flex: 1; min-width: 0; }
+  .entry .desc { font-weight: 500; overflow-wrap: anywhere; }
+  .entry .date { color: var(--muted); font-size: 12px; }
+  .entry .del { border: 0; background: none; color: var(--muted); font-size: 20px; padding: 4px 6px; line-height: 1; }
+  .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
+
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 10; display: flex; align-items: flex-end; }
+  .sheet { background: var(--card); width: 100%; max-width: 640px; margin: 0 auto; border-radius: 20px 20px 0 0;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .sheet h3 { margin: 0 0 14px; }
+  .sheet input { margin-bottom: 10px; }
+  .sheet .link { display: block; width: 100%; text-align: center; margin-top: 10px; background: none; border: 0;
+    color: var(--muted); font: inherit; padding: 8px; }
+  .sheet .link.danger { color: var(--danger); }
+
+  .login { max-width: 360px; margin: 15vh auto 0; text-align: center; }
+  .login input { margin: 16px 0 10px; text-align: center; }
+  .err { color: var(--danger); font-size: 14px; min-height: 20px; margin-top: 6px; }
+  .toast { position: fixed; bottom: calc(90px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+    background: #222; color: #fff; padding: 10px 18px; border-radius: 20px; font-size: 14px; z-index: 20; }
+</style>
+</head>
+<body>
+
+<header>
+  <button id="backBtn" class="hidden" aria-label="חזרה">→</button>
+  <h1 id="title">חובות לקוחות</h1>
+  <button id="editBtn" class="hidden">עריכה</button>
+</header>
+
+<main>
+  <!-- Login -->
+  <section id="loginView" class="hidden">
+    <div class="login">
+      <h2 style="font-size:20px;color:var(--text)">כניסה</h2>
+      <input id="pw" type="password" inputmode="numeric" placeholder="סיסמה" autocomplete="current-password">
+      <button class="btn" id="loginBtn">כניסה</button>
+      <div class="err" id="loginErr"></div>
+    </div>
+  </section>
+
+  <!-- Customers list -->
+  <section id="listView" class="hidden">
+    <div class="summary">
+      <div>
+        <div class="label">סה״כ חובות פתוחים</div>
+        <div class="value amount" id="totalDebt">₪0</div>
+      </div>
+      <div class="count" id="debtorsCount"></div>
+    </div>
+    <input class="search" id="search" type="search" placeholder="חיפוש לקוח...">
+    <div class="list" id="customers"></div>
+  </section>
+
+  <!-- Customer detail -->
+  <section id="detailView" class="hidden">
+    <div class="balance-card">
+      <div class="label">יתרה לתשלום</div>
+      <div class="big" id="balance">₪0</div>
+      <div class="phone" id="phone"></div>
+      <div class="actions" id="contactActions"></div>
+    </div>
+
+    <div class="form">
+      <div class="seg">
+        <button data-type="debt" class="on">➕ חוב חדש</button>
+        <button data-type="payment">💰 תשלום</button>
+      </div>
+      <div class="row">
+        <input class="grow" id="desc" placeholder="מוצר (לדוגמה: מטען)">
+        <input class="amt" id="amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="סכום">
+      </div>
+      <button class="btn" id="addEntryBtn">הוסף</button>
+    </div>
+
+    <h2>פירוט</h2>
+    <div class="list" id="entries"></div>
+  </section>
+</main>
+
+<button class="fab hidden" id="fab">+ לקוח חדש</button>
+
+<!-- Customer add/edit sheet -->
+<div class="sheet-bg hidden" id="sheet">
+  <div class="sheet">
+    <h3 id="sheetTitle">לקוח חדש</h3>
+    <input id="cName" placeholder="שם הלקוח" autocomplete="off">
+    <input id="cPhone" type="tel" inputmode="tel" placeholder="טלפון (לא חובה)" autocomplete="off">
+    <button class="btn" id="saveCustomerBtn">שמירה</button>
+    <button class="link danger hidden" id="deleteCustomerBtn">מחיקת לקוח</button>
+    <button class="link" id="cancelSheetBtn">ביטול</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => '₪' + Math.abs(n).toLocaleString('he-IL', { maximumFractionDigits: 2 });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cls = n => n > 0 ? 'debt' : n < 0 ? 'paid' : 'zero';
+
+let customers = [];
+let current = null;
+let entryType = 'debt';
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json' },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && url !== '/api/login') { show('login'); throw new Error('auth'); }
+  if (!res.ok) throw new Error(data.error || 'שגיאה');
+  return data;
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+
+function show(view) {
+  for (const v of ['login', 'list', 'detail']) $(v + 'View').classList.toggle('hidden', v !== view);
+  $('fab').classList.toggle('hidden', view !== 'list');
+  $('backBtn').classList.toggle('hidden', view !== 'detail');
+  $('editBtn').classList.toggle('hidden', view !== 'detail');
+  if (view !== 'detail') $('title').textContent = 'חובות לקוחות';
+}
+
+// --- Routing ---
+async function route() {
+  const m = location.hash.match(/^#\/c\/(\d+)/);
+  try {
+    if (m) await openCustomer(Number(m[1]));
+    else await loadList();
+  } catch (e) { if (e.message !== 'auth') toast(e.message); }
+}
+window.addEventListener('hashchange', route);
+
+// --- List ---
+async function loadList() {
+  customers = await api('/api/customers');
+  show('list');
+  renderList();
+}
+
+function renderList() {
+  const q = $('search').value.trim().toLowerCase();
+  const filtered = customers
+    .filter(c => !q || c.name.toLowerCase().includes(q) || (c.phone || '').includes(q))
+    .sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name, 'he'));
+  const total = customers.reduce((s, c) => s + Math.max(c.balance, 0), 0);
+  const debtors = customers.filter(c => c.balance > 0).length;
+  $('totalDebt').textContent = fmt(total);
+  $('debtorsCount').innerHTML = `${debtors} חייבים<br>${customers.length} לקוחות`;
+
+  $('customers').innerHTML = filtered.length ? filtered.map(c => `
+    <div class="item" data-id="${c.id}">
+      <div class="avatar">${esc(c.name.trim()[0] || '?')}</div>
+      <div class="main">
+        <div class="name">${esc(c.name)}</div>
+        <div class="sub">${c.entries_count} רשומות${c.phone ? ' · ' + esc(c.phone) : ''}</div>
+      </div>
+      <div class="amount ${cls(c.balance)}">${c.balance < 0 ? 'זכות ' : ''}${fmt(c.balance)}</div>
+    </div>`).join('')
+    : `<div class="empty">${customers.length ? 'לא נמצאו לקוחות' : 'אין עדיין לקוחות.<br>לחץ על "+ לקוח חדש" כדי להתחיל.'}</div>`;
+}
+
+$('search').addEventListener('input', renderList);
+$('customers').addEventListener('click', e => {
+  const item = e.target.closest('.item');
+  if (item) location.hash = '#/c/' + item.dataset.id;
+});
+
+// --- Detail ---
+async function openCustomer(id) {
+  current = await api('/api/customers/' + id);
+  show('detail');
+  renderDetail();
+}
+
+function renderDetail() {
+  const c = current;
+  $('title').textContent = c.name;
+  $('balance').textContent = (c.balance < 0 ? 'זכות ' : '') + fmt(c.balance);
+  $('balance').className = 'big amount ' + cls(c.balance);
+  $('phone').textContent = c.phone || '';
+
+  const digits = (c.phone || '').replace(/\D/g, '');
+  const intl = digits.startsWith('0') ? '972' + digits.slice(1) : digits;
+  const lines = c.entries.filter(e => e.amount > 0).map(e => `• ${e.description}: ${fmt(e.amount)}`).join('\n');
+  const msg = `שלום ${c.name}, יתרתך לתשלום: ${fmt(c.balance)}\n\n${lines}`;
+  $('contactActions').innerHTML = digits ? `
+    <a href="tel:${esc(digits)}">📞 חיוג</a>
+    <a href="https://wa.me/${esc(intl)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">💬 וואטסאפ</a>` : '';
+
+  $('entries').innerHTML = c.entries.length ? c.entries.map(e => `
+    <div class="entry">
+      <div class="main">
+        <div class="desc">${esc(e.description)}</div>
+        <div class="date">${new Date(e.created_at).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}${e.amount < 0 ? ' · תשלום' : ''}</div>
+      </div>
+      <div class="amount ${e.amount < 0 ? 'paid' : 'debt'}">${e.amount < 0 ? '−' : '+'}${fmt(e.amount)}</div>
+      <button class="del" data-id="${e.id}" aria-label="מחיקה">×</button>
+    </div>`).join('')
+    : '<div class="empty">אין רשומות עדיין</div>';
+}
+
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  entryType = b.dataset.type;
+  document.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
+  $('desc').placeholder = entryType === 'debt' ? 'מוצר (לדוגמה: מטען)' : 'הערה (לדוגמה: מזומן)';
+  if (entryType === 'payment' && !$('desc').value) $('desc').value = 'תשלום';
+  if (entryType === 'debt' && $('desc').value === 'תשלום') $('desc').value = '';
+}));
+
+$('addEntryBtn').addEventListener('click', async () => {
+  const description = $('desc').value.trim();
+  const amount = parseFloat($('amt').value);
+  if (!description) return toast('הזן תיאור');
+  if (!(amount > 0)) return toast('הזן סכום');
+  $('addEntryBtn').disabled = true;
+  try {
+    await api(`/api/customers/${current.id}/entries`, { method: 'POST', body: { description, amount, type: entryType } });
+    $('desc').value = entryType === 'payment' ? 'תשלום' : '';
+    $('amt').value = '';
+    await openCustomer(current.id);
+    toast(entryType === 'payment' ? 'התשלום נרשם' : 'החוב נוסף');
+  } catch (e) { if (e.message !== 'auth') toast(e.message); }
+  $('addEntryBtn').disabled = false;
+});
+
+$('entries').addEventListener('click', async e => {
+  const btn = e.target.closest('.del');
+  if (!btn || !confirm('למחוק את הרשומה?')) return;
+  await api('/api/entries/' + btn.dataset.id, { method: 'DELETE' });
+  await openCustomer(current.id);
+});
+
+$('backBtn').addEventListener('click', () => { location.hash = ''; });
+
+// --- Customer sheet ---
+let editing = false;
+function openSheet(edit) {
+  editing = edit;
+  $('sheetTitle').textContent = edit ? 'עריכת לקוח' : 'לקוח חדש';
+  $('cName').value = edit ? current.name : '';
+  $('cPhone').value = edit ? (current.phone || '') : '';
+  $('deleteCustomerBtn').classList.toggle('hidden', !edit);
+  $('sheet').classList.remove('hidden');
+  setTimeout(() => $('cName').focus(), 50);
+}
+const closeSheet = () => $('sheet').classList.add('hidden');
+
+$('fab').addEventListener('click', () => openSheet(false));
+$('editBtn').addEventListener('click', () => openSheet(true));
+$('cancelSheetBtn').addEventListener('click', closeSheet);
+$('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
+
+$('saveCustomerBtn').addEventListener('click', async () => {
+  const body = { name: $('cName').value.trim(), phone: $('cPhone').value.trim() };
+  if (!body.name) return toast('הזן שם');
+  try {
+    if (editing) {
+      await api('/api/customers/' + current.id, { method: 'PUT', body });
+      closeSheet();
+      await openCustomer(current.id);
+    } else {
+      const c = await api('/api/customers', { method: 'POST', body });
+      closeSheet();
+      location.hash = '#/c/' + c.id;
+    }
+  } catch (e) { if (e.message !== 'auth') toast(e.message); }
+});
+
+$('deleteCustomerBtn').addEventListener('click', async () => {
+  if (!confirm(`למחוק את ${current.name} וכל הרשומות שלו?`)) return;
+  await api('/api/customers/' + current.id, { method: 'DELETE' });
+  closeSheet();
+  location.hash = '';
+});
+
+// --- Login ---
+async function login() {
+  $('loginErr').textContent = '';
+  try {
+    await api('/api/login', { method: 'POST', body: { password: $('pw').value } });
+    $('pw').value = '';
+    route();
+  } catch (e) { $('loginErr').textContent = e.message; }
+}
+$('loginBtn').addEventListener('click', login);
+$('pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+$('amt').addEventListener('keydown', e => { if (e.key === 'Enter') $('addEntryBtn').click(); });
+
+route();
+</script>
+</body>
+</html>
