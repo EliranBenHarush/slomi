@@ -51,6 +51,9 @@
   .item .main { flex: 1; min-width: 0; }
   .item .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .item .sub { color: var(--muted); font-size: 13px; }
+  .del-c { border: 0; background: none; font-size: 18px; padding: 6px; margin-inline-start: -4px;
+    opacity: .55; flex: none; cursor: pointer; }
+  .del-c:hover { opacity: 1; }
   .amount { font-weight: 700; white-space: nowrap; direction: ltr; }
   .amount.debt { color: var(--debt); } .amount.paid { color: var(--paid); } .amount.zero { color: var(--muted); }
 
@@ -252,12 +255,25 @@ function renderList() {
         <div class="sub">${c.entries_count} רשומות${c.phone ? ' · ' + esc(c.phone) : ''}</div>
       </div>
       <div class="amount ${cls(c.balance)}">${c.balance < 0 ? 'זכות ' : ''}${fmt(c.balance)}</div>
+      <button class="del-c" data-id="${c.id}" aria-label="מחיקת לקוח">🗑</button>
     </div>`).join('')
     : `<div class="empty">${customers.length ? 'לא נמצאו לקוחות' : 'אין עדיין לקוחות.<br>לחץ על "+ לקוח חדש" כדי להתחיל.'}</div>`;
 }
 
 $('search').addEventListener('input', renderList);
-$('customers').addEventListener('click', e => {
+$('customers').addEventListener('click', async e => {
+  const del = e.target.closest('.del-c');
+  if (del) {
+    const c = customers.find(x => x.id === Number(del.dataset.id));
+    const extra = c.balance ? ` (יתרה ${fmt(c.balance)})` : '';
+    if (!confirm(`למחוק את ${c.name}${extra} וכל הרשומות שלו?`)) return;
+    try {
+      await api('/api/customers/' + c.id, { method: 'DELETE' });
+      toast('הלקוח נמחק');
+      await loadList();
+    } catch (err) { if (err.message !== 'auth') toast(err.message); }
+    return;
+  }
   const item = e.target.closest('.item');
   if (item) location.hash = '#/c/' + item.dataset.id;
 });
