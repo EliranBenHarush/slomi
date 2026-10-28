@@ -133,10 +133,12 @@ app.post('/api/customers/:id/entries', wrap(async (req, res) => {
   const type = req.body.type === 'payment' ? 'payment' : 'debt';
   if (!description) return res.status(400).json({ error: 'חובה להזין תיאור' });
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'סכום לא תקין' });
+  const date = req.body.date ? new Date(req.body.date) : new Date();
+  if (isNaN(date)) return res.status(400).json({ error: 'תאריך לא תקין' });
   const signed = type === 'payment' ? -amount : amount;
   const { rows } = await pool.query(
-    'INSERT INTO entries (customer_id, description, amount) VALUES ($1, $2, $3) RETURNING id',
-    [Number(req.params.id), description, signed]);
+    'INSERT INTO entries (customer_id, description, amount, created_at) VALUES ($1, $2, $3, $4) RETURNING id',
+    [Number(req.params.id), description, signed, date.toISOString()]);
   res.status(201).json(rows[0]);
 }));
 

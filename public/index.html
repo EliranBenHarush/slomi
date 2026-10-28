@@ -81,6 +81,9 @@
   .row { display: flex; gap: 8px; margin-bottom: 10px; }
   .row .grow { flex: 1; }
   .row .amt { width: 120px; flex: none; }
+  .date-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .date-row span { color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .date-row input { flex: 1; min-width: 0; padding: 10px 12px; }
   .btn { width: 100%; border: 0; border-radius: 12px; padding: 13px; font: inherit; font-weight: 700;
     background: var(--brand); color: #fff; }
   @media (prefers-color-scheme: dark) { .btn { color: #062b27; } }
@@ -161,6 +164,10 @@
         <input class="grow" id="desc" placeholder="מוצר (לדוגמה: מטען)">
         <input class="amt" id="amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="סכום">
       </div>
+      <label class="date-row">
+        <span>📅 תאריך ושעה</span>
+        <input id="when" type="datetime-local">
+      </label>
       <button class="btn" id="addEntryBtn">הוסף</button>
     </div>
 
@@ -279,9 +286,17 @@ $('customers').addEventListener('click', async e => {
 });
 
 // --- Detail ---
+// Current local date/time in the format datetime-local expects
+function nowLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
 async function openCustomer(id) {
   current = await api('/api/customers/' + id);
   show('detail');
+  $('when').value = nowLocal();
   renderDetail();
 }
 
@@ -325,9 +340,11 @@ $('addEntryBtn').addEventListener('click', async () => {
   const amount = parseFloat($('amt').value);
   if (!description) return toast('הזן תיאור');
   if (!(amount > 0)) return toast('הזן סכום');
+  const when = $('when').value ? new Date($('when').value) : new Date();
+  if (isNaN(when)) return toast('תאריך לא תקין');
   $('addEntryBtn').disabled = true;
   try {
-    await api(`/api/customers/${current.id}/entries`, { method: 'POST', body: { description, amount, type: entryType } });
+    await api(`/api/customers/${current.id}/entries`, { method: 'POST', body: { description, amount, type: entryType, date: when.toISOString() } });
     $('desc').value = entryType === 'payment' ? 'תשלום' : '';
     $('amt').value = '';
     await openCustomer(current.id);
