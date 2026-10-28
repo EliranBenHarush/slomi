@@ -42,6 +42,8 @@ async function initDb() {
       amount NUMERIC(12,2) NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
+  // Set when a debt entry is marked as paid; paid entries don't count toward the balance
+  await pool.query('ALTER TABLE entries ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ');
 }
 
 // --- App ---
@@ -80,7 +82,7 @@ const toNum = v => Number(v);
 app.get('/api/customers', wrap(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT c.id, c.name, c.phone,
-           COALESCE(SUM(e.amount), 0) AS balance,
+           COALESCE(SUM(CASE WHEN e.paid_at IS NULL THEN e.amount ELSE 0 END), 0) AS balance,
            COUNT(e.id) AS entries_count,
            MAX(e.created_at) AS last_activity
     FROM customers c
@@ -104,9 +106,9 @@ app.get('/api/customers/:id', wrap(async (req, res) => {
   const c = await pool.query('SELECT id, name, phone FROM customers WHERE id = $1', [id]);
   if (!c.rows.length) return res.status(404).json({ error: 'לקוח לא נמצא' });
   const e = await pool.query(
-    'SELECT id, description, amount, created_at FROM entries WHERE customer_id = $1 ORDER BY created_at DESC, id DESC', [id]);
+    'SELECT id, description, amount, created_at, paid_at FROM entries WHERE customer_id = $1 ORDER BY created_at DESC, id DESC', [id]);
   const entries = e.rows.map(r => ({ ...r, amount: toNum(r.amount) }));
-  const balance = entries.reduce((s, r) => s + r.amount, 0);
+  const balance = entries.reduce((s, r) => s + (r.paid_at ? 0 : r.amount), 0);
   res.json({ ...c.rows[0], balance: Math.round(balance * 100) / 100, entries });
 }));
 
@@ -140,6 +142,14 @@ app.post('/api/customers/:id/entries', wrap(async (req, res) => {
     'INSERT INTO entries (customer_id, description, amount, created_at) VALUES ($1, $2, $3, $4) RETURNING id',
     [Number(req.params.id), description, signed, date.toISOString()]);
   res.status(201).json(rows[0]);
+}));
+
+app.put('/api/entries/:id/paid', wrap(async (req, res) => {
+  const paid = req.body.paid !== false;
+  const { rowCount } = await pool.query(
+    `UPDATE entries SET paid_at = ${paid ? 'NOW()' : 'NULL'} WHERE id = $1 AND amount > 0`, [Number(req.params.id)]);
+  if (!rowCount) return res.status(404).json({ error: 'רשומה לא נמצאה' });
+  res.json({ ok: true });
 }));
 
 app.delete('/api/entries/:id', wrap(async (req, res) => {

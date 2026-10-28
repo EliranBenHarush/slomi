@@ -96,6 +96,13 @@
   .entry .desc { font-weight: 500; overflow-wrap: anywhere; }
   .entry .date { color: var(--muted); font-size: 12px; }
   .entry .del { border: 0; background: none; color: var(--muted); font-size: 20px; padding: 4px 6px; line-height: 1; }
+  .pay-btn { flex: none; border: 1px solid var(--paid); background: var(--paid-soft); color: var(--paid);
+    border-radius: 10px; padding: 6px 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .pay-btn.undo { border-color: var(--line); background: var(--bg); color: var(--muted); font-weight: 500; }
+  .pay-btn:disabled { opacity: .5; }
+  .entry.is-paid { opacity: .7; }
+  .entry.is-paid .desc, .entry.is-paid .amount { text-decoration: line-through; }
+  .paid-note { color: var(--paid); font-size: 12px; font-weight: 600; }
   .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
 
   .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 10; display: flex; align-items: flex-end; }
@@ -309,19 +316,24 @@ function renderDetail() {
 
   const digits = (c.phone || '').replace(/\D/g, '');
   const intl = digits.startsWith('0') ? '972' + digits.slice(1) : digits;
-  const lines = c.entries.filter(e => e.amount > 0).map(e => `• ${e.description}: ${fmt(e.amount)}`).join('\n');
+  const lines = c.entries.filter(e => e.amount > 0 && !e.paid_at).map(e => `• ${e.description}: ${fmt(e.amount)}`).join('\n');
   const msg = `שלום ${c.name}, יתרתך לתשלום: ${fmt(c.balance)}\n\n${lines}`;
   $('contactActions').innerHTML = digits ? `
     <a href="tel:${esc(digits)}">📞 חיוג</a>
     <a href="https://wa.me/${esc(intl)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">💬 וואטסאפ</a>` : '';
 
+  const dt = d => new Date(d).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
   $('entries').innerHTML = c.entries.length ? c.entries.map(e => `
-    <div class="entry">
+    <div class="entry${e.paid_at ? ' is-paid' : ''}">
       <div class="main">
         <div class="desc">${esc(e.description)}</div>
-        <div class="date">${new Date(e.created_at).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}${e.amount < 0 ? ' · תשלום' : ''}</div>
+        <div class="date">${dt(e.created_at)}${e.amount < 0 ? ' · תשלום' : ''}</div>
+        ${e.paid_at ? `<div class="paid-note">✓ שולם ${dt(e.paid_at)}</div>` : ''}
       </div>
-      <div class="amount ${e.amount < 0 ? 'paid' : 'debt'}">${e.amount < 0 ? '−' : '+'}${fmt(e.amount)}</div>
+      <div class="amount ${e.amount < 0 || e.paid_at ? 'paid' : 'debt'}">${e.amount < 0 ? '−' : '+'}${fmt(e.amount)}</div>
+      ${e.amount > 0 ? (e.paid_at
+        ? `<button class="pay-btn undo" data-id="${e.id}" data-paid="0">ביטול</button>`
+        : `<button class="pay-btn" data-id="${e.id}" data-paid="1">שולם</button>`) : ''}
       <button class="del" data-id="${e.id}" aria-label="מחיקה">×</button>
     </div>`).join('')
     : '<div class="empty">אין רשומות עדיין</div>';
@@ -354,6 +366,17 @@ $('addEntryBtn').addEventListener('click', async () => {
 });
 
 $('entries').addEventListener('click', async e => {
+  const pay = e.target.closest('.pay-btn');
+  if (pay) {
+    pay.disabled = true;
+    try {
+      const paid = pay.dataset.paid === '1';
+      await api(`/api/entries/${pay.dataset.id}/paid`, { method: 'PUT', body: { paid } });
+      await openCustomer(current.id);
+      toast(paid ? 'סומן כשולם' : 'הסימון בוטל');
+    } catch (err) { if (err.message !== 'auth') toast(err.message); pay.disabled = false; }
+    return;
+  }
   const btn = e.target.closest('.del');
   if (!btn || !confirm('למחוק את הרשומה?')) return;
   await api('/api/entries/' + btn.dataset.id, { method: 'DELETE' });
