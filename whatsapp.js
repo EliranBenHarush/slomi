@@ -52,10 +52,19 @@ function patchInject(Client) {
   };
 }
 
+// Chromium leaves Singleton* lock files in the profile. After a redeploy they point at the old
+// container, and Chromium refuses to open the profile ("profile appears to be in use").
+function clearProfileLocks() {
+  for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    try { fs.rmSync(path.join(SESSION_DIR, f), { force: true }); } catch {}
+  }
+}
+
 function start(attempt = 1) {
   if (client) return;
   const { Client, LocalAuth } = require('whatsapp-web.js');
   patchInject(Client);
+  clearProfileLocks();
   state = { status: 'loading', qr: null, error: null, me: null };
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: DATA_PATH }),
