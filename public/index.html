@@ -373,7 +373,8 @@ function renderDetail() {
     <button class="send-btn" id="sendStatementBtn">📤 שלח פירוט</button>
     <a href="tel:${esc(digits)}">📞 חיוג</a>
     <a href="https://wa.me/${esc(intl)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">💬 וואטסאפ</a>`
-    : '<button class="send-btn" id="sendStatementBtn">📤 שלח פירוט</button>';
+    : `<button class="send-btn" id="sendStatementBtn">📤 שלח פירוט</button>
+    <button id="addPhoneBtn">📱 הוסף טלפון</button>`;
 
   const dt = d => new Date(d).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
   $('entries').innerHTML = c.entries.length ? c.entries.map(e => `
@@ -443,14 +444,25 @@ $('backBtn').addEventListener('click', () => { location.hash = ''; });
 const waFormat = t => esc(t).replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/(^|\s)_([^_\n]+)_/g, '$1<i>$2</i>');
 
 $('contactActions').addEventListener('click', async e => {
+  if (e.target.closest('#addPhoneBtn')) return openSheet(true, true);
   if (!e.target.closest('#sendStatementBtn')) return;
-  if (!current.phone) return toast('הוסף מספר טלפון ללקוח (עריכה)');
+  if (!current.phone) {
+    // Ask for the phone first, then continue to the preview after saving
+    sendAfterSave = true;
+    openSheet(true, true);
+    return toast('הוסף מספר טלפון כדי לשלוח');
+  }
+  await openSendPreview();
+});
+
+let sendAfterSave = false;
+async function openSendPreview() {
   try {
     const s = await api(`/api/customers/${current.id}/statement`);
     $('sendPreview').innerHTML = waFormat(s.text);
     $('sendSheet').classList.remove('hidden');
   } catch (err) { if (err.message !== 'auth') toast(err.message); }
-});
+}
 $('sendCancelBtn').addEventListener('click', () => $('sendSheet').classList.add('hidden'));
 $('sendSheet').addEventListener('click', e => { if (e.target === $('sendSheet')) $('sendSheet').classList.add('hidden'); });
 $('sendConfirmBtn').addEventListener('click', async () => {
@@ -515,16 +527,16 @@ $('saveSettingsBtn').addEventListener('click', async () => {
 
 // --- Customer sheet ---
 let editing = false;
-function openSheet(edit) {
+function openSheet(edit, focusPhone = false) {
   editing = edit;
-  $('sheetTitle').textContent = edit ? 'עריכת לקוח' : 'לקוח חדש';
+  $('sheetTitle').textContent = !edit ? 'לקוח חדש' : focusPhone ? 'הוספת מספר טלפון' : 'עריכת לקוח';
   $('cName').value = edit ? current.name : '';
   $('cPhone').value = edit ? (current.phone || '') : '';
-  $('deleteCustomerBtn').classList.toggle('hidden', !edit);
+  $('deleteCustomerBtn').classList.toggle('hidden', !edit || focusPhone);
   $('sheet').classList.remove('hidden');
-  setTimeout(() => $('cName').focus(), 50);
+  setTimeout(() => $(focusPhone ? 'cPhone' : 'cName').focus(), 50);
 }
-const closeSheet = () => $('sheet').classList.add('hidden');
+const closeSheet = () => { $('sheet').classList.add('hidden'); sendAfterSave = false; };
 
 $('fab').addEventListener('click', () => openSheet(false));
 $('editBtn').addEventListener('click', () => openSheet(true));
@@ -537,8 +549,10 @@ $('saveCustomerBtn').addEventListener('click', async () => {
   try {
     if (editing) {
       await api('/api/customers/' + current.id, { method: 'PUT', body });
+      const thenSend = sendAfterSave && body.phone;
       closeSheet();
       await openCustomer(current.id);
+      if (thenSend) await openSendPreview();
     } else {
       const c = await api('/api/customers', { method: 'POST', body });
       closeSheet();
