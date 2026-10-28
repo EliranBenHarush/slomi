@@ -107,26 +107,52 @@ function start(attempt = 1, fresh = !fs.existsSync(SESSION_DIR)) {
     },
   });
 
-  client.on('qr', async qr => {
+  const c = client;
+  // Events from a client we've already replaced must not touch the current state
+  const on = (event, fn) => c.on(event, (...args) => {
+    console.log(`WhatsApp event: ${event}${event === 'disconnected' || event === 'auth_failure' ? ' ' + args[0] : ''}`);
+    if (client === c) fn(...args);
+  });
+
+  let qrCount = 0;
+  on('qr', async qr => {
+    qrCount++;
     state.status = 'qr';
+    state.qrAt = Date.now();
     state.qr = await QRCode.toDataURL(qr, { margin: 1, width: 280 });
   });
-  client.on('authenticated', () => { state.status = 'loading'; state.qr = null; });
-  client.on('ready', () => {
+  on('authenticated', () => { state.status = 'loading'; state.qr = null; });
+  on('ready', () => {
     state.status = 'ready';
     state.qr = null;
-    state.me = client.info?.wid?.user || null;
+    state.me = c.info?.wid?.user || null;
     fs.writeFileSync(READY_FLAG, new Date().toISOString());
   });
-  client.on('auth_failure', () => reset('ההתחברות נכשלה, נסה שוב'));
-  client.on('disconnected', async () => {
-    const c = client;
+  on('auth_failure', () => reset('ההתחברות נכשלה, נסה שוב'));
+  on('disconnected', async () => {
     client = null;
     reset();
     try { await c.destroy(); } catch {}
   });
 
-  const c = client;
+  // WhatsApp Web stops refreshing the QR after a few minutes ("Select to reload QR code"),
+  // leaving a dead code on screen. Stop after 3 minutes without a scan; "connect" makes a new one.
+  const qrTimer = setInterval(async () => {
+    if (client !== c) return clearInterval(qrTimer);
+    if (state.status !== 'qr' || Date.now() - state.qrAt < 60000) return;
+    let expired = false;
+    try {
+      expired = await c.pupPage.evaluate(() => /reload QR|לטעון מחדש/i.test(document.body.innerText));
+    } catch {}
+    if (!expired && Date.now() - state.qrAt < 180000) return;
+    clearInterval(qrTimer);
+    console.log(`WhatsApp QR expired after ${qrCount} codes without a scan`);
+    client = null;
+    try { await c.destroy(); } catch {}
+    wipeSession();
+    reset('תוקף הקוד פג. לחץ "התחבר לוואטסאפ" לקבלת קוד חדש');
+  }, 10000);
+
   watchForStaleSession(c, fresh);
   c.initialize().catch(async err => {
     console.error(`WhatsApp init failed (attempt ${attempt}):`, String(err?.stack || err).slice(0, 600));
@@ -174,4 +200,7 @@ async function screenshot() {
   return page.screenshot({ type: 'png' });
 }
 
-module.exports = { start, startIfSaved, logout, send, screenshot, status: () => state, UserError };
+module.exports = {
+  start, startIfSaved, logout, send, screenshot, UserError,
+  status: () => ({ status: state.status, qr: state.qr, error: state.error, me: state.me }),
+};
