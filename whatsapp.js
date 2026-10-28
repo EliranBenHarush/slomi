@@ -97,6 +97,14 @@ function start(attempt = 1) {
   });
 
   const c = client;
+  // Never sit on "loading" forever: if it hasn't reached QR/ready in 3 minutes, give up
+  setTimeout(async () => {
+    if (client !== c || state.status !== 'loading') return;
+    console.error('WhatsApp stuck loading for 3 minutes, stopping');
+    client = null;
+    reset('החיבור נתקע. נסה "איפוס חיבור" וסריקה מחדש');
+    try { await c.destroy(); } catch {}
+  }, 180000);
   c.initialize().catch(async err => {
     console.error(`WhatsApp init failed (attempt ${attempt}):`, String(err?.stack || err).slice(0, 600));
     try { await c.destroy(); } catch {}
@@ -137,4 +145,11 @@ async function send(phone, text) {
   await client.sendMessage(id._serialized, text);
 }
 
-module.exports = { start, startIfSaved, logout, send, status: () => state, UserError };
+// For troubleshooting: what the headless WhatsApp page currently shows
+async function screenshot() {
+  const page = client?.pupPage;
+  if (!page) return null;
+  return page.screenshot({ type: 'png' });
+}
+
+module.exports = { start, startIfSaved, logout, send, screenshot, status: () => state, UserError };

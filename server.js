@@ -140,6 +140,11 @@ app.put('/api/settings', wrap(async (req, res) => {
 // --- WhatsApp ---
 app.get('/api/whatsapp/status', (req, res) => res.json(wa.status()));
 app.post('/api/whatsapp/connect', (req, res) => { wa.start(); res.json(wa.status()); });
+app.get('/api/whatsapp/screenshot', wrap(async (req, res) => {
+  const png = await wa.screenshot();
+  if (!png) return res.status(404).json({ error: 'וואטסאפ לא פעיל' });
+  res.type('png').send(Buffer.from(png));
+}));
 app.post('/api/whatsapp/logout', wrap(async (req, res) => { await wa.logout(); res.json(wa.status()); }));
 
 async function loadStatement(id) {
