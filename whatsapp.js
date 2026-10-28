@@ -60,7 +60,37 @@ function clearProfileLocks() {
   }
 }
 
-function start(attempt = 1) {
+const wipeSession = () => {
+  fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+  fs.rmSync(READY_FLAG, { force: true });
+};
+
+// A saved session WhatsApp no longer accepts (e.g. unlinked from the phone, or a scan that never
+// finished) makes WhatsApp Web show a new QR, but whatsapp-web.js keeps waiting for the old
+// session and never emits 'qr'. Detect that and start over with a clean session.
+function watchForStaleSession(c, fresh) {
+  const startedAt = Date.now();
+  const timer = setInterval(async () => {
+    if (client !== c || state.status !== 'loading') return clearInterval(timer);
+    const elapsed = Date.now() - startedAt;
+    let showsQr = false;
+    try {
+      showsQr = elapsed > 20000 && await c.pupPage?.evaluate(
+        () => !!document.querySelector('[data-ref] canvas, canvas[aria-label*="QR" i], canvas[aria-label*="scan" i]'));
+    } catch {}
+    if (!showsQr && elapsed < 300000) return;
+    clearInterval(timer);
+    console.error(`WhatsApp stuck loading (${showsQr ? 'page shows a QR' : 'timeout'})`);
+    client = null;
+    try { await c.destroy(); } catch {}
+    // Only a QR on screen proves the saved session is dead; a slow load is not a reason to delete it
+    if (fresh || !showsQr) return reset('החיבור נתקע. נסה "איפוס חיבור" וסריקה מחדש');
+    wipeSession();
+    start(1, true);
+  }, 5000);
+}
+
+function start(attempt = 1, fresh = !fs.existsSync(SESSION_DIR)) {
   if (client) return;
   const { Client, LocalAuth } = require('whatsapp-web.js');
   patchInject(Client);
@@ -97,21 +127,14 @@ function start(attempt = 1) {
   });
 
   const c = client;
-  // Never sit on "loading" forever: if it hasn't reached QR/ready in 3 minutes, give up
-  setTimeout(async () => {
-    if (client !== c || state.status !== 'loading') return;
-    console.error('WhatsApp stuck loading for 3 minutes, stopping');
-    client = null;
-    reset('החיבור נתקע. נסה "איפוס חיבור" וסריקה מחדש');
-    try { await c.destroy(); } catch {}
-  }, 180000);
+  watchForStaleSession(c, fresh);
   c.initialize().catch(async err => {
     console.error(`WhatsApp init failed (attempt ${attempt}):`, String(err?.stack || err).slice(0, 600));
     try { await c.destroy(); } catch {}
     if (client !== c) return;
     client = null;
     // WhatsApp Web sometimes reloads itself during the first load; retrying usually works
-    if (attempt < 4) setTimeout(() => start(attempt + 1), 3000);
+    if (attempt < 4) setTimeout(() => start(attempt + 1, fresh), 3000);
     else reset('החיבור נכשל. נסה "איפוס חיבור" וסריקה מחדש');
   });
 }
@@ -128,8 +151,7 @@ async function logout() {
     try { await c.logout(); } catch {}
     try { await c.destroy(); } catch {}
   }
-  fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-  fs.rmSync(READY_FLAG, { force: true });
+  wipeSession();
   reset();
 }
 
