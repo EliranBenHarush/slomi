@@ -14,17 +14,40 @@ const reset = (error = null) => { state = { status: 'disconnected', qr: null, er
 
 let patched = false;
 
-// whatsapp-web.js reads WAWebSocketModel.Socket as soon as WhatsApp Web's version is known.
-// When restoring a saved session the page is still booting and Socket is null, which crashes
-// with "Cannot read properties of null (reading 'Socket')". Wait for it first.
+// When restoring a saved session, WhatsApp Web reloads itself mid-login. whatsapp-web.js then
+// evaluates code on a page whose modules aren't loaded yet and crashes with
+// "Cannot read properties of null (reading 'Socket')" or "Execution context was destroyed".
+// Make every page.evaluate wait for WhatsApp's modules and retry on those errors.
+const RETRYABLE = /reading 'Socket'|Execution context was destroyed|Cannot find context/;
+
+function waitForWhatsApp(page) {
+  return page.waitForFunction(() => {
+    try { return !!window.require('WAWebSocketModel').Socket; } catch { return false; }
+  }, { timeout: 60000, polling: 300 }).catch(() => {});
+}
+
 function patchInject(Client) {
   if (patched) return;
   patched = true;
   const original = Client.prototype.inject;
   Client.prototype.inject = async function () {
-    await this.pupPage.waitForFunction(() => {
-      try { return !!window.require('WAWebSocketModel').Socket; } catch { return false; }
-    }, { timeout: 90000, polling: 500 }).catch(() => {});
+    const page = this.pupPage;
+    if (!page.__retryPatched) {
+      page.__retryPatched = true;
+      const evaluate = page.evaluate.bind(page);
+      page.evaluate = async (...args) => {
+        for (let i = 0; ; i++) {
+          try {
+            return await evaluate(...args);
+          } catch (err) {
+            if (i >= 6 || !RETRYABLE.test(String(err?.message || err))) throw err;
+            await new Promise(r => setTimeout(r, 1000));
+            await waitForWhatsApp(page);
+          }
+        }
+      };
+    }
+    await waitForWhatsApp(page);
     return original.call(this);
   };
 }
@@ -66,7 +89,7 @@ function start(attempt = 1) {
 
   const c = client;
   c.initialize().catch(async err => {
-    console.error(`WhatsApp init failed (attempt ${attempt}):`, err.message);
+    console.error(`WhatsApp init failed (attempt ${attempt}):`, String(err?.stack || err).slice(0, 600));
     try { await c.destroy(); } catch {}
     if (client !== c) return;
     client = null;
