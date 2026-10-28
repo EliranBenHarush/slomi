@@ -103,6 +103,22 @@
   .entry.is-paid { opacity: .7; }
   .entry.is-paid .desc, .entry.is-paid .amount { text-decoration: line-through; }
   .paid-note { color: var(--paid); font-size: 12px; font-weight: 600; }
+  .btn.secondary { background: var(--bg); color: var(--danger); border: 1px solid var(--line); margin-top: 8px; }
+  .btn.wa { background: #25d366; color: #fff; }
+  .actions .send-btn { background: #25d366; color: #fff; border-color: #25d366; font-weight: 600; }
+  .wa-card { text-align: center; }
+  .wa-status { font-weight: 600; margin-bottom: 12px; }
+  .wa-status.ok { color: var(--paid); }
+  .wa-qr { width: 240px; height: 240px; margin: 0 auto 12px; display: block; background: #fff; padding: 8px; border-radius: 12px; }
+  .wa-help { color: var(--muted); font-size: 14px; margin-bottom: 12px; }
+  .field-label { display: block; color: var(--muted); font-size: 14px; margin: 0 2px 6px; }
+  .form input + .field-label, .form textarea + .btn { margin-top: 12px; }
+  textarea { width: 100%; font: inherit; font-size: 16px; padding: 12px 14px; border-radius: 12px; resize: vertical;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .wa-preview { background: #e7fbe0; color: #111b21; border-radius: 12px; padding: 12px 14px; white-space: pre-wrap;
+    font-size: 14px; max-height: 50vh; overflow-y: auto; margin-bottom: 12px; overflow-wrap: anywhere; }
+  .wa-preview b { font-weight: 700; }
+  @media (prefers-color-scheme: dark) { .wa-preview { background: #005c4b; color: #e9edef; } }
   .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
 
   .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 10; display: flex; align-items: flex-end; }
@@ -127,6 +143,7 @@
   <button id="backBtn" class="hidden" aria-label="חזרה">→</button>
   <h1 id="title">חובות לקוחות</h1>
   <button id="editBtn" class="hidden">עריכה</button>
+  <button id="settingsBtn" class="hidden" aria-label="הגדרות">⚙️ הגדרות</button>
 </header>
 
 <main>
@@ -181,6 +198,27 @@
     <h2>פירוט</h2>
     <div class="list" id="entries"></div>
   </section>
+
+  <!-- Settings -->
+  <section id="settingsView" class="hidden">
+    <h2>חיבור וואטסאפ</h2>
+    <div class="form wa-card">
+      <div class="wa-status" id="waStatus">בודק...</div>
+      <img id="waQr" class="wa-qr hidden" alt="קוד QR לחיבור וואטסאפ">
+      <div class="wa-help hidden" id="waHelp">בטלפון: וואטסאפ ← ⋮ / הגדרות ← <b>מכשירים מקושרים</b> ← <b>קישור מכשיר</b>, וסרוק את הקוד.</div>
+      <button class="btn" id="waConnectBtn">התחבר לוואטסאפ</button>
+      <button class="btn secondary hidden" id="waLogoutBtn">התנתק מוואטסאפ</button>
+    </div>
+
+    <h2>הודעת הפירוט</h2>
+    <div class="form">
+      <label class="field-label" for="sBusiness">שם העסק</label>
+      <input id="sBusiness" placeholder="לדוגמה: סלולר שלומי">
+      <label class="field-label" for="sFooter">שורה בסוף ההודעה (לא חובה)</label>
+      <textarea id="sFooter" rows="3" placeholder="לדוגמה: ניתן לשלם בביט למספר 050-0000000"></textarea>
+      <button class="btn" id="saveSettingsBtn">שמירה</button>
+    </div>
+  </section>
 </main>
 
 <button class="fab hidden" id="fab">+ לקוח חדש</button>
@@ -194,6 +232,16 @@
     <button class="btn" id="saveCustomerBtn">שמירה</button>
     <button class="link danger hidden" id="deleteCustomerBtn">מחיקת לקוח</button>
     <button class="link" id="cancelSheetBtn">ביטול</button>
+  </div>
+</div>
+
+<!-- Statement preview sheet -->
+<div class="sheet-bg hidden" id="sendSheet">
+  <div class="sheet">
+    <h3>שליחת פירוט בוואטסאפ</h3>
+    <div class="wa-preview" id="sendPreview"></div>
+    <button class="btn" id="sendConfirmBtn">📤 שלח ללקוח</button>
+    <button class="link" id="sendCancelBtn">ביטול</button>
   </div>
 </div>
 
@@ -227,11 +275,13 @@ function toast(msg) {
 }
 
 function show(view) {
-  for (const v of ['login', 'list', 'detail']) $(v + 'View').classList.toggle('hidden', v !== view);
+  for (const v of ['login', 'list', 'detail', 'settings']) $(v + 'View').classList.toggle('hidden', v !== view);
   $('fab').classList.toggle('hidden', view !== 'list');
-  $('backBtn').classList.toggle('hidden', view !== 'detail');
+  $('backBtn').classList.toggle('hidden', view !== 'detail' && view !== 'settings');
   $('editBtn').classList.toggle('hidden', view !== 'detail');
-  if (view !== 'detail') $('title').textContent = 'חובות לקוחות';
+  $('settingsBtn').classList.toggle('hidden', view !== 'list');
+  if (view !== 'detail') $('title').textContent = view === 'settings' ? 'הגדרות' : 'חובות לקוחות';
+  if (view !== 'settings') stopWaPolling();
 }
 
 // --- Routing ---
@@ -239,6 +289,7 @@ async function route() {
   const m = location.hash.match(/^#\/c\/(\d+)/);
   try {
     if (m) await openCustomer(Number(m[1]));
+    else if (location.hash === '#/settings') await openSettings();
     else await loadList();
   } catch (e) { if (e.message !== 'auth') toast(e.message); }
 }
@@ -319,8 +370,10 @@ function renderDetail() {
   const lines = c.entries.filter(e => e.amount > 0 && !e.paid_at).map(e => `• ${e.description}: ${fmt(e.amount)}`).join('\n');
   const msg = `שלום ${c.name}, יתרתך לתשלום: ${fmt(c.balance)}\n\n${lines}`;
   $('contactActions').innerHTML = digits ? `
+    <button class="send-btn" id="sendStatementBtn">📤 שלח פירוט</button>
     <a href="tel:${esc(digits)}">📞 חיוג</a>
-    <a href="https://wa.me/${esc(intl)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">💬 וואטסאפ</a>` : '';
+    <a href="https://wa.me/${esc(intl)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">💬 וואטסאפ</a>`
+    : '<button class="send-btn" id="sendStatementBtn">📤 שלח פירוט</button>';
 
   const dt = d => new Date(d).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
   $('entries').innerHTML = c.entries.length ? c.entries.map(e => `
@@ -384,6 +437,81 @@ $('entries').addEventListener('click', async e => {
 });
 
 $('backBtn').addEventListener('click', () => { location.hash = ''; });
+
+// --- Send statement via WhatsApp ---
+// Render WhatsApp *bold* / _italic_ for the preview
+const waFormat = t => esc(t).replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/(^|\s)_([^_\n]+)_/g, '$1<i>$2</i>');
+
+$('contactActions').addEventListener('click', async e => {
+  if (!e.target.closest('#sendStatementBtn')) return;
+  if (!current.phone) return toast('הוסף מספר טלפון ללקוח (עריכה)');
+  try {
+    const s = await api(`/api/customers/${current.id}/statement`);
+    $('sendPreview').innerHTML = waFormat(s.text);
+    $('sendSheet').classList.remove('hidden');
+  } catch (err) { if (err.message !== 'auth') toast(err.message); }
+});
+$('sendCancelBtn').addEventListener('click', () => $('sendSheet').classList.add('hidden'));
+$('sendSheet').addEventListener('click', e => { if (e.target === $('sendSheet')) $('sendSheet').classList.add('hidden'); });
+$('sendConfirmBtn').addEventListener('click', async () => {
+  const btn = $('sendConfirmBtn');
+  btn.disabled = true; btn.textContent = 'שולח...';
+  try {
+    await api(`/api/customers/${current.id}/send`, { method: 'POST' });
+    $('sendSheet').classList.add('hidden');
+    toast('הפירוט נשלח בוואטסאפ ✓');
+  } catch (err) { if (err.message !== 'auth') toast(err.message); }
+  btn.disabled = false; btn.textContent = '📤 שלח ללקוח';
+});
+
+// --- Settings ---
+let waTimer = null;
+function stopWaPolling() { clearInterval(waTimer); waTimer = null; }
+
+function renderWa(s) {
+  const text = {
+    ready: `✅ מחובר${s.me ? ' (' + s.me + ')' : ''}`,
+    qr: 'סרוק את הקוד עם וואטסאפ בטלפון',
+    loading: '⏳ מתחבר... (יכול לקחת עד דקה)',
+    disconnected: s.error || 'לא מחובר',
+  }[s.status];
+  $('waStatus').textContent = text;
+  $('waStatus').classList.toggle('ok', s.status === 'ready');
+  $('waQr').classList.toggle('hidden', s.status !== 'qr' || !s.qr);
+  if (s.qr) $('waQr').src = s.qr;
+  $('waHelp').classList.toggle('hidden', s.status !== 'qr');
+  $('waConnectBtn').classList.toggle('hidden', s.status !== 'disconnected');
+  $('waLogoutBtn').classList.toggle('hidden', s.status === 'disconnected');
+}
+
+async function pollWa() {
+  try { renderWa(await api('/api/whatsapp/status')); } catch {}
+}
+
+async function openSettings() {
+  show('settings');
+  const s = await api('/api/settings');
+  $('sBusiness').value = s.business_name;
+  $('sFooter').value = s.footer;
+  await pollWa();
+  stopWaPolling();
+  waTimer = setInterval(pollWa, 3000);
+}
+
+$('settingsBtn').addEventListener('click', () => { location.hash = '#/settings'; });
+$('waConnectBtn').addEventListener('click', async () => {
+  renderWa(await api('/api/whatsapp/connect', { method: 'POST' }));
+});
+$('waLogoutBtn').addEventListener('click', async () => {
+  if (!confirm('להתנתק מוואטסאפ?')) return;
+  renderWa(await api('/api/whatsapp/logout', { method: 'POST' }));
+});
+$('saveSettingsBtn').addEventListener('click', async () => {
+  try {
+    await api('/api/settings', { method: 'PUT', body: { business_name: $('sBusiness').value, footer: $('sFooter').value } });
+    toast('ההגדרות נשמרו');
+  } catch (err) { if (err.message !== 'auth') toast(err.message); }
+});
 
 // --- Customer sheet ---
 let editing = false;

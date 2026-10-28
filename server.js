@@ -1,6 +1,10 @@
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
+const wa = require('./whatsapp');
+
+// whatsapp-web.js can reject promises in its own event handlers; never let that take the app down
+process.on('unhandledRejection', err => console.error('Unhandled rejection:', err?.message || err));
 
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
@@ -44,6 +48,47 @@ async function initDb() {
     )`);
   // Set when a debt entry is marked as paid; paid entries don't count toward the balance
   await pool.query('ALTER TABLE entries ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )`);
+}
+
+const SETTING_KEYS = ['business_name', 'footer'];
+
+async function getSettings() {
+  const { rows } = await pool.query('SELECT key, value FROM settings');
+  const s = Object.fromEntries(SETTING_KEYS.map(k => [k, '']));
+  for (const r of rows) if (SETTING_KEYS.includes(r.key)) s[r.key] = r.value || '';
+  return s;
+}
+
+// --- WhatsApp statement message (WhatsApp formatting: *bold*, _italic_) ---
+const money = n => '₪' + Math.abs(n).toLocaleString('he-IL', { maximumFractionDigits: 2 });
+const day = d => new Date(d).toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', year: '2-digit' });
+
+function buildStatement(customer, entries, settings) {
+  const open = entries.filter(e => e.amount > 0 && !e.paid_at).reverse();
+  const payments = entries.filter(e => e.amount < 0).reverse();
+  const balance = open.reduce((s, e) => s + e.amount, 0) + payments.reduce((s, e) => s + e.amount, 0);
+  const line = '━━━━━━━━━━━━━━';
+
+  const out = [];
+  if (settings.business_name) out.push(`🏪 *${settings.business_name}*`, '');
+  out.push(`*שלום ${customer.name}* 👋`, 'מצורף פירוט החשבון שלך:');
+  out.push('', `🧾 *פירוט חובות*`, line);
+  if (open.length) open.forEach(e => out.push(`▫️ ${day(e.created_at)} · ${e.description} · *${money(e.amount)}*`));
+  else out.push('_אין חובות פתוחים_');
+  if (payments.length) {
+    out.push('', `✅ *תשלומים שהתקבלו*`, line);
+    payments.forEach(e => out.push(`▫️ ${day(e.created_at)} · ${e.description} · *−${money(e.amount)}*`));
+  }
+  out.push(line);
+  out.push(balance > 0 ? `💰 *יתרה לתשלום: ${money(balance)}*` : balance < 0 ? `💚 *יתרת זכות: ${money(balance)}*` : '✅ *החשבון מאופס, תודה!*');
+  if (settings.footer) out.push('', settings.footer);
+  out.push('', '_תודה רבה!_ 🙏');
+  return out.join('\n');
 }
 
 // --- App ---
@@ -78,6 +123,51 @@ const wrap = fn => (req, res) => fn(req, res).catch(err => {
 });
 
 const toNum = v => Number(v);
+
+// --- Settings ---
+app.get('/api/settings', wrap(async (req, res) => res.json(await getSettings())));
+
+app.put('/api/settings', wrap(async (req, res) => {
+  for (const key of SETTING_KEYS) {
+    if (typeof req.body[key] !== 'string') continue;
+    const value = req.body[key].trim().slice(0, 1000);
+    await pool.query('DELETE FROM settings WHERE key = $1', [key]);
+    await pool.query('INSERT INTO settings (key, value) VALUES ($1, $2)', [key, value]);
+  }
+  res.json(await getSettings());
+}));
+
+// --- WhatsApp ---
+app.get('/api/whatsapp/status', (req, res) => res.json(wa.status()));
+app.post('/api/whatsapp/connect', (req, res) => { wa.start(); res.json(wa.status()); });
+app.post('/api/whatsapp/logout', wrap(async (req, res) => { await wa.logout(); res.json(wa.status()); }));
+
+async function loadStatement(id) {
+  const c = await pool.query('SELECT id, name, phone FROM customers WHERE id = $1', [id]);
+  if (!c.rows.length) return null;
+  const e = await pool.query(
+    'SELECT description, amount, created_at, paid_at FROM entries WHERE customer_id = $1 ORDER BY created_at DESC, id DESC', [id]);
+  const entries = e.rows.map(r => ({ ...r, amount: toNum(r.amount) }));
+  return { customer: c.rows[0], text: buildStatement(c.rows[0], entries, await getSettings()) };
+}
+
+app.get('/api/customers/:id/statement', wrap(async (req, res) => {
+  const s = await loadStatement(Number(req.params.id));
+  if (!s) return res.status(404).json({ error: 'לקוח לא נמצא' });
+  res.json({ text: s.text, phone: s.customer.phone });
+}));
+
+app.post('/api/customers/:id/send', wrap(async (req, res) => {
+  const s = await loadStatement(Number(req.params.id));
+  if (!s) return res.status(404).json({ error: 'לקוח לא נמצא' });
+  try {
+    await wa.send(s.customer.phone, s.text);
+  } catch (err) {
+    if (err instanceof wa.UserError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  res.json({ ok: true });
+}));
 
 app.get('/api/customers', wrap(async (req, res) => {
   const { rows } = await pool.query(`
@@ -160,7 +250,10 @@ app.delete('/api/entries/:id', wrap(async (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 initDb()
-  .then(() => app.listen(PORT, () => console.log(`Server running on port ${PORT}`)))
+  .then(() => {
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    wa.startIfSaved();
+  })
   .catch(err => {
     console.error('DB init failed:', err);
     process.exit(1);

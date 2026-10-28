@@ -1,3 +1,5 @@
 node_modules
 .env
 .claude
+.wwebjs_auth
+.wwebjs_cache
