@@ -12,9 +12,27 @@ let state = { status: 'disconnected', qr: null, error: null, me: null };
 
 const reset = (error = null) => { state = { status: 'disconnected', qr: null, error, me: null }; };
 
+let patched = false;
+
+// whatsapp-web.js reads WAWebSocketModel.Socket as soon as WhatsApp Web's version is known.
+// When restoring a saved session the page is still booting and Socket is null, which crashes
+// with "Cannot read properties of null (reading 'Socket')". Wait for it first.
+function patchInject(Client) {
+  if (patched) return;
+  patched = true;
+  const original = Client.prototype.inject;
+  Client.prototype.inject = async function () {
+    await this.pupPage.waitForFunction(() => {
+      try { return !!window.require('WAWebSocketModel').Socket; } catch { return false; }
+    }, { timeout: 90000, polling: 500 }).catch(() => {});
+    return original.call(this);
+  };
+}
+
 function start(attempt = 1) {
   if (client) return;
   const { Client, LocalAuth } = require('whatsapp-web.js');
+  patchInject(Client);
   state = { status: 'loading', qr: null, error: null, me: null };
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: DATA_PATH }),
@@ -54,7 +72,7 @@ function start(attempt = 1) {
     client = null;
     // WhatsApp Web sometimes reloads itself during the first load; retrying usually works
     if (attempt < 4) setTimeout(() => start(attempt + 1), 3000);
-    else reset('לא ניתן להפעיל את וואטסאפ בשרת');
+    else reset('החיבור נכשל. נסה "איפוס חיבור" וסריקה מחדש');
   });
 }
 

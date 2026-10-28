@@ -493,7 +493,9 @@ function renderWa(s) {
   if (s.qr) $('waQr').src = s.qr;
   $('waHelp').classList.toggle('hidden', s.status !== 'qr');
   $('waConnectBtn').classList.toggle('hidden', s.status !== 'disconnected');
-  $('waLogoutBtn').classList.toggle('hidden', s.status === 'disconnected');
+  // After a failure, offer a reset that clears the saved session so a fresh QR can be scanned
+  $('waLogoutBtn').classList.toggle('hidden', s.status === 'disconnected' && !s.error);
+  $('waLogoutBtn').textContent = s.status === 'disconnected' ? 'איפוס חיבור' : 'התנתק מוואטסאפ';
 }
 
 async function pollWa() {
